@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>4 in a Row</title>
+<style>
+  :root {
+    --bg-deep:#0b0f2e; --bg-panel:#141a42; --text-main:#eef1ff; --text-dim:#9aa3d1;
+    --frame:#2fae5f; --frame-dark:#1f8547; --hole:#0b0f2e;
+    --p1:#ff6fae; --p2:#5ec8ff;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; }
+  body {
+    background:
+      radial-gradient(circle at 20% 20%, rgba(94,200,255,0.08), transparent 40%),
+      radial-gradient(circle at 80% 75%, rgba(255,111,174,0.08), transparent 40%),
+      var(--bg-deep);
+    color:var(--text-main); font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:24px 14px 60px;
+  }
+  h1 { font-size:clamp(1.6rem,5vw,2.3rem); margin:0 0 4px; background:linear-gradient(90deg,var(--p1),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .subtitle { color:var(--text-dim); margin-bottom:16px; font-size:0.95rem; }
+  .turn { font-size:1.1rem; font-weight:700; margin-bottom:14px; padding:6px 18px; border-radius:999px; background:var(--bg-panel); }
+  .turn.p1 { color:var(--p1); } .turn.p2 { color:var(--p2); }
+  .board-wrap { position:relative; }
+  .board {
+    display:grid; grid-template-columns:repeat(7,1fr); gap:8px;
+    background:var(--frame); border:6px solid var(--frame-dark); border-radius:16px; padding:10px;
+    touch-action:manipulation;
+  }
+  .col { display:grid; grid-template-rows:repeat(6,1fr); gap:8px; cursor:pointer; }
+  .col:hover .cell.empty:last-child { box-shadow:inset 0 0 0 3px rgba(255,255,255,0.4); }
+  .cell {
+    width:clamp(30px,11vw,54px); height:clamp(30px,11vw,54px); border-radius:50%;
+    background:var(--hole); box-shadow:inset 0 2px 4px rgba(0,0,0,0.5);
+    transition:background 0.1s;
+  }
+  .cell.p1 { background:var(--p1); box-shadow:inset 0 -3px 6px rgba(0,0,0,0.25); }
+  .cell.p2 { background:var(--p2); box-shadow:inset 0 -3px 6px rgba(0,0,0,0.25); }
+  .cell.win { box-shadow:0 0 0 3px #fff, inset 0 -3px 6px rgba(0,0,0,0.25); }
+  .drop { animation:drop 0.28s cubic-bezier(0.3,0.6,0.4,1); }
+  @keyframes drop { 0% { transform:translateY(-340px); } 100% { transform:translateY(0); } }
+  .controls { margin-top:20px; display:flex; gap:10px; }
+  button { font-family:inherit; border:none; cursor:pointer; background:var(--frame); color:#08240f; padding:11px 24px; border-radius:999px; font-weight:700; font-size:0.95rem; }
+  button:hover { transform:translateY(-1px); }
+  .overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; background:rgba(11,15,46,0.9); border-radius:16px; text-align:center; padding:20px; }
+  .overlay.show { display:flex; }
+  .overlay .msg { font-size:1.5rem; font-weight:700; margin-bottom:16px; }
+  .scores { display:flex; gap:26px; margin-bottom:16px; font-size:0.95rem; color:var(--text-dim); }
+  .scores strong { display:block; font-size:1.3rem; }
+  .scores .s1 strong { color:var(--p1); } .scores .s2 strong { color:var(--p2); }
+</style>
+</head>
+<body>
+  <h1>4 in a Row</h1>
+  <p class="subtitle">Drop a counter. First to line up four wins.</p>
+
+  <div class="scores">
+    <div class="s1">Pink<strong id="score-1">0</strong></div>
+    <div class="s2">Blue<strong id="score-2">0</strong></div>
+  </div>
+
+  <div class="turn p1" id="turn">Pink's turn</div>
+
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+    <div class="overlay" id="overlay">
+      <div class="msg" id="msg"></div>
+      <button id="again-btn">Play again</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="reset-btn">New game</button>
+  </div>
+
+<script>
+  const COLS=7, ROWS=6;
+  const boardEl=document.getElementById('board');
+  const turnEl=document.getElementById('turn');
+  const overlay=document.getElementById('overlay');
+  const msgEl=document.getElementById('msg');
+
+  let grid, current, over, scores=[0,0];
+
+  function newGame() {
+    grid=Array.from({length:COLS},()=>Array(ROWS).fill(0));
+    current=1; over=false;
+    overlay.classList.remove('show');
+    render();
+    updateTurn();
+  }
+
+  function render() {
+    boardEl.innerHTML='';
+    for (let c=0;c<COLS;c++){
+      const col=document.createElement('div');
+      col.className='col'; col.dataset.col=c;
+      for (let r=0;r<ROWS;r++){
+        const cell=document.createElement('div');
+        cell.className='cell';
+        const v=grid[c][r];
+        if (v===0) cell.classList.add('empty');
+        else cell.classList.add(v===1?'p1':'p2');
+        cell.dataset.col=c; cell.dataset.row=r;
+        col.appendChild(cell);
+      }
+      col.addEventListener('click',()=>drop(c));
+      boardEl.appendChild(col);
+    }
+  }
+
+  function updateTurn() {
+    turnEl.textContent=(current===1?'Pink':'Blue')+"'s turn";
+    turnEl.className='turn '+(current===1?'p1':'p2');
+  }
+
+  function drop(c) {
+    if (over) return;
+    let row=-1;
+    for (let r=ROWS-1;r>=0;r--){ if (grid[c][r]===0){ row=r; break; } }
+    if (row===-1) return;
+    grid[c][row]=current;
+
+    render();
+    const placed=boardEl.querySelector('.cell[data-col="'+c+'"][data-row="'+row+'"]');
+    if (placed) placed.classList.add('drop');
+
+    const win=findWin(c,row,current);
+    if (win){ over=true; markWin(win); scores[current-1]++; updateScores(); showResult((current===1?'Pink':'Blue')+' wins!'); return; }
+    if (isFull()){ over=true; showResult("It's a draw!"); return; }
+
+    current=current===1?2:1;
+    updateTurn();
+  }
+
+  function isFull() { return grid.every(col=>col[0]!==0); }
+
+  function findWin(c,r,p) {
+    const dirs=[[1,0],[0,1],[1,1],[1,-1]];
+    for (const [dc,dr] of dirs){
+      const line=[[c,r]];
+      for (let s=1;s<4;s++){ const nc=c+dc*s,nr=r+dr*s; if (nc<0||nc>=COLS||nr<0||nr>=ROWS||grid[nc][nr]!==p) break; line.push([nc,nr]); }
+      for (let s=1;s<4;s++){ const nc=c-dc*s,nr=r-dr*s; if (nc<0||nc>=COLS||nr<0||nr>=ROWS||grid[nc][nr]!==p) break; line.unshift([nc,nr]); }
+      if (line.length>=4) return line;
+    }
+    return null;
+  }
+
+  function markWin(line) {
+    for (const [c,r] of line){
+      const cell=boardEl.querySelector('.cell[data-col="'+c+'"][data-row="'+r+'"]');
+      if (cell) cell.classList.add('win');
+    }
+  }
+
+  function updateScores() {
+    document.getElementById('score-1').textContent=scores[0];
+    document.getElementById('score-2').textContent=scores[1];
+  }
+
+  function showResult(text) {
+    msgEl.textContent=text;
+    msgEl.style.color = text.indexOf('Pink')===0 ? 'var(--p1)' : (text.indexOf('Blue')===0 ? 'var(--p2)' : 'var(--text-main)');
+    overlay.classList.add('show');
+  }
+
+  document.getElementById('again-btn').addEventListener('click',newGame);
+  document.getElementById('reset-btn').addEventListener('click',()=>{ scores=[0,0]; updateScores(); newGame(); });
+
+  newGame();
+</script>
+</body>
+</html>
