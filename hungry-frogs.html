@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hungry Frogs</title>
+<style>
+  :root { --bg-deep:#0c1f14; --bg-panel:#123024; --text-main:#eef7ef; --text-dim:#9fc7ac; --green:#5fd06a; --yellow:#ffd21e; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body { background:var(--bg-deep); color:var(--text-main); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; display:flex; flex-direction:column; }
+  .hud { display:flex; align-items:center; justify-content:space-between; padding:9px 18px; background:var(--bg-panel); gap:12px; flex-wrap:wrap; }
+  .score { font-size:1rem; font-weight:700; min-width:110px; }
+  .score span { font-size:1.5rem; display:block; }
+  .score.green { color:var(--green); }
+  .score.yellow { color:var(--yellow); text-align:right; }
+  .title { font-size:0.8rem; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase; }
+  .stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  .overlay { position:absolute; inset:0; background:rgba(12,31,20,0.94); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
+  .overlay.hidden { display:none; }
+  .overlay h1 { font-size:clamp(1.6rem,5vw,2.4rem); margin:0 0 10px; background:linear-gradient(90deg,var(--green),var(--yellow)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .overlay p { color:var(--text-dim); margin:4px 0; font-size:0.95rem; max-width:440px; }
+  .controls-note { display:flex; gap:26px; margin:14px 0 20px; flex-wrap:wrap; justify-content:center; }
+  .controls-note strong { display:block; font-size:1rem; margin-bottom:4px; }
+  .controls-note .green { color:var(--green); } .controls-note .yellow { color:var(--yellow); }
+  button { font-family:inherit; border:none; cursor:pointer; background:var(--green); color:#08240f; padding:12px 30px; border-radius:999px; font-weight:700; font-size:1rem; }
+  button:hover { transform:translateY(-1px); }
+  .winner { font-size:1.5rem; font-weight:700; margin-bottom:10px; }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <div class="score green">Green<span id="score-green">0</span></div>
+    <div class="title" id="balls-left">22 balls</div>
+    <div class="score yellow">Yellow<span id="score-yellow">0</span></div>
+  </div>
+  <div class="stage">
+    <canvas id="game"></canvas>
+    <div class="overlay" id="start-overlay">
+      <h1>Hungry Frogs</h1>
+      <p>Flick your tongue to grab the balls. The gold master ball is worth 5. Most points when they are all gone wins.</p>
+      <div class="controls-note">
+        <div class="green"><strong>Green frog</strong>Tap the left side<br>or press A</div>
+        <div class="yellow"><strong>Yellow frog</strong>Tap the right side<br>or press L</div>
+      </div>
+      <button id="start-btn">Start</button>
+    </div>
+    <div class="overlay hidden" id="end-overlay">
+      <div class="winner" id="winner-text"></div>
+      <button id="again-btn">Play again</button>
+    </div>
+  </div>
+
+<script>
+  const canvas=document.getElementById('game');
+  const ctx=canvas.getContext('2d');
+  const stage=canvas.parentElement;
+
+  const NORMAL=21;
+  const BALL_COLORS=['#e8392f','#5ec8ff','#ff8c2a','#ff6fae','#b58cff','#eef0f5'];
+  let layout=null, balls=[], frogs=[], running=false, lastFrame=0;
+
+  function resize(){
+    const dpr=window.devicePixelRatio||1;
+    const w=stage.clientWidth, h=stage.clientHeight;
+    canvas.width=w*dpr; canvas.height=h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    computeLayout(w,h);
+  }
+  function computeLayout(w,h){
+    const m=Math.max(12,Math.min(w,h)*0.03);
+    const left=m, right=w-m, top=m, bottom=h-m;
+    layout={w,h,left,right,top,bottom,aw:right-left,ah:bottom-top};
+    const frogSize=Math.max(40,Math.min(90,(bottom-top)*0.2));
+    layout.frogSize=frogSize;
+    layout.ballR=Math.max(9,(bottom-top)*0.028);
+    layout.tongueMax=(right-left)*0.5;
+  }
+
+  function makeBalls(){
+    balls=[];
+    const speed=Math.max(120,layout.ah*0.55);
+    for (let i=0;i<NORMAL+1;i++){
+      const master=i===NORMAL;
+      const a=Math.random()*Math.PI*2;
+      balls.push({
+        x:layout.left+layout.aw*(0.25+Math.random()*0.5),
+        y:layout.top+layout.ah*(0.15+Math.random()*0.7),
+        vx:Math.cos(a)*speed*(0.7+Math.random()*0.5),
+        vy:Math.sin(a)*speed*(0.7+Math.random()*0.5),
+        r:master?layout.ballR*1.8:layout.ballR,
+        color:master?'#ffcf33':BALL_COLORS[i%BALL_COLORS.length],
+        master, caught:false
+      });
+    }
+  }
+
+  function makeFrogs(){
+    const patrol=Math.max(90,layout.ah*0.35);
+    frogs=[
+      { team:'green', color:'#5fd06a', x:layout.left, dir:1,  y:layout.top+layout.ah*0.5, vy:patrol,  score:0, tongue:0, phase:null, caught:null },
+      { team:'yellow',color:'#ffd21e', x:layout.right,dir:-1, y:layout.top+layout.ah*0.5, vy:-patrol, score:0, tongue:0, phase:null, caught:null }
+    ];
+  }
+
+  function startGame(){
+    resize(); makeBalls(); makeFrogs();
+    running=true; lastFrame=performance.now();
+    document.getElementById('start-overlay').classList.add('hidden');
+    document.getElementById('end-overlay').classList.add('hidden');
+    updateHud();
+    requestAnimationFrame(loop);
+  }
+
+  function flick(team){
+    const f=frogs.find(fr=>fr.team===team);
+    if (f && f.phase===null){ f.phase='out'; f.tongue=0; f.caught=null; }
+  }
+
+  function loop(ts){
+    if (!running) return;
+    let dt=(ts-lastFrame)/1000; lastFrame=ts; if (dt>0.05) dt=0.05;
+
+    for (const b of balls){
+      if (b.caught) continue;
+      b.x+=b.vx*dt; b.y+=b.vy*dt;
+      if (b.x-b.r<layout.left){ b.x=layout.left+b.r; b.vx=Math.abs(b.vx); }
+      if (b.x+b.r>layout.right){ b.x=layout.right-b.r; b.vx=-Math.abs(b.vx); }
+      if (b.y-b.r<layout.top){ b.y=layout.top+b.r; b.vy=Math.abs(b.vy); }
+      if (b.y+b.r>layout.bottom){ b.y=layout.bottom-b.r; b.vy=-Math.abs(b.vy); }
+    }
+
+    const TSPEED=layout.tongueMax/0.16;
+    for (const f of frogs){
+      if (f.phase===null){
+        f.y+=f.vy*dt;
+        const pad=layout.frogSize*0.5;
+        if (f.y<layout.top+pad){ f.y=layout.top+pad; f.vy=Math.abs(f.vy); }
+        if (f.y>layout.bottom-pad){ f.y=layout.bottom-pad; f.vy=-Math.abs(f.vy); }
+      } else if (f.phase==='out'){
+        f.tongue+=TSPEED*dt;
+        if (!f.caught){
+          for (const b of balls){
+            if (b.caught) continue;
+            if (Math.abs(b.y-f.y)<b.r+layout.ballR*0.6){
+              const reached = f.dir>0 ? (f.x+f.tongue>=b.x && b.x>f.x) : (f.x-f.tongue<=b.x && b.x<f.x);
+              if (reached){ b.caught=true; f.caught=b; f.phase='in'; break; }
+            }
+          }
+        }
+        if (f.tongue>=layout.tongueMax) f.phase='in';
+      } else {
+        f.tongue-=TSPEED*dt;
+        if (f.caught){ f.caught.x=f.x+f.dir*f.tongue; f.caught.y=f.y; }
+        if (f.tongue<=0){
+          f.tongue=0;
+          if (f.caught){ f.score+=f.caught.master?5:1; balls=balls.filter(b=>b!==f.caught); f.caught=null; updateHud(); }
+          f.phase=null;
+        }
+      }
+    }
+
+    render();
+    if (balls.length===0){ endGame(); return; }
+    requestAnimationFrame(loop);
+  }
+
+  function updateHud(){
+    document.getElementById('score-green').textContent=frogs[0].score;
+    document.getElementById('score-yellow').textContent=frogs[1].score;
+    document.getElementById('balls-left').textContent=balls.length+' balls';
+  }
+
+  function render(){
+    const L=layout;
+    ctx.clearRect(0,0,L.w,L.h);
+    ctx.fillStyle='#0c1f14'; ctx.fillRect(0,0,L.w,L.h);
+    ctx.fillStyle='#37946e';
+    rr(L.left,L.top,L.aw,L.ah,18); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.ellipse(L.left+L.aw/2,L.top+L.ah/2,L.aw*0.32,L.ah*0.32,0,0,7); ctx.fill();
+
+    for (const f of frogs){ if (f.phase) drawTongue(f); }
+    for (const b of balls) drawBall(b);
+    for (const f of frogs) drawFrog(f);
+  }
+
+  function drawTongue(f){
+    const s=layout.frogSize;
+    ctx.strokeStyle='#e8607f'; ctx.lineWidth=s*0.14; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(f.x,f.y); ctx.lineTo(f.x+f.dir*f.tongue,f.y); ctx.stroke();
+    ctx.fillStyle='#ff8ca6'; ctx.beginPath(); ctx.arc(f.x+f.dir*f.tongue,f.y,s*0.1,0,7); ctx.fill();
+  }
+
+  function drawFrog(f){
+    const s=layout.frogSize, dark='#123a1e';
+    ctx.fillStyle=f.color; ctx.strokeStyle=dark; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(f.x,f.y,s*0.5,s*0.6,0,0,7); ctx.fill(); ctx.stroke();
+    const ex=f.x+f.dir*s*0.05;
+    for (const ey of [f.y-s*0.4,f.y+s*0.4]){
+      ctx.fillStyle=f.color; ctx.beginPath(); ctx.arc(ex,ey,s*0.2,0,7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ex+f.dir*s*0.04,ey,s*0.12,0,7); ctx.fill();
+      ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(ex+f.dir*s*0.08,ey,s*0.06,0,7); ctx.fill();
+    }
+    ctx.strokeStyle=dark; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(f.x+f.dir*s*0.2,f.y,s*0.16,f.dir>0?-1.2:Math.PI-(-1.2)+0,f.dir>0?1.2:Math.PI+1.2); ctx.stroke();
+  }
+
+  function drawBall(b){
+    ctx.fillStyle=b.color; ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.arc(b.x-b.r*0.3,b.y-b.r*0.3,b.r*0.28,0,7); ctx.fill();
+    if (b.master){ ctx.fillStyle='#7a4a00'; ctx.font='700 '+Math.round(b.r*0.9)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('5',b.x,b.y); ctx.textAlign='start'; ctx.textBaseline='alphabetic'; }
+  }
+
+  function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  function endGame(){
+    running=false;
+    const g=frogs[0].score, y=frogs[1].score;
+    document.getElementById('winner-text').textContent = g===y ? "It's a tie!" : ((g>y?'Green':'Yellow')+' frog wins!');
+    document.getElementById('winner-text').style.color = g>y?'var(--green)':(y>g?'var(--yellow)':'var(--text-main)');
+    document.getElementById('end-overlay').classList.remove('hidden');
+  }
+
+  window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if (k==='a') flick('green'); if (k==='l') flick('yellow'); });
+  canvas.addEventListener('pointerdown',e=>{ if (!running) return; const r=canvas.getBoundingClientRect(); flick((e.clientX-r.left)<layout.w/2?'green':'yellow'); e.preventDefault(); });
+  window.addEventListener('resize',()=>{ if (layout) resize(); });
+  document.getElementById('start-btn').addEventListener('click',startGame);
+  document.getElementById('again-btn').addEventListener('click',startGame);
+  resize();
+</script>
+</body>
+</html>

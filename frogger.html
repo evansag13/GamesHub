@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Frogger</title>
+<style>
+  :root { --bg-deep:#07131f; --bg-panel:#0e2233; --text-main:#eef7ff; --text-dim:#9fc0d4; --p1:#5fd06a; --p2:#ff6fae; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body { background:var(--bg-deep); color:var(--text-main); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; display:flex; flex-direction:column; }
+  .hud { display:flex; align-items:center; justify-content:space-between; padding:9px 18px; background:var(--bg-panel); gap:12px; flex-wrap:wrap; }
+  .score { font-size:1rem; font-weight:700; min-width:96px; }
+  .score span { font-size:1.4rem; display:block; }
+  .score.p1 { color:var(--p1); }
+  .score.p2 { color:var(--p2); text-align:right; }
+  .timer { font-size:1.4rem; font-weight:700; }
+  .stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  .overlay { position:absolute; inset:0; background:rgba(7,19,31,0.94); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
+  .overlay.hidden { display:none; }
+  .overlay h1 { font-size:clamp(1.6rem,5vw,2.4rem); margin:0 0 10px; background:linear-gradient(90deg,var(--p1),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .overlay p { color:var(--text-dim); margin:4px 0; font-size:0.95rem; max-width:440px; }
+  .controls-note { display:flex; gap:26px; margin:14px 0 20px; flex-wrap:wrap; justify-content:center; }
+  .controls-note strong { display:block; font-size:1rem; margin-bottom:4px; }
+  .controls-note .p1 { color:var(--p1); } .controls-note .p2 { color:var(--p2); }
+  .control-choice { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+  button { font-family:inherit; border:none; cursor:pointer; background:var(--p1); color:#07240f; padding:12px 28px; border-radius:999px; font-weight:700; font-size:0.98rem; }
+  button:hover { transform:translateY(-1px); }
+  .winner { font-size:1.5rem; font-weight:700; margin-bottom:10px; }
+  .touch-controls.hidden { display:none; }
+  .cluster { position:absolute; bottom:14px; display:grid; grid-template-columns:repeat(2,60px); grid-template-rows:repeat(2,60px); gap:8px; touch-action:none; }
+  .cluster.left { left:14px; } .cluster.right { right:14px; }
+  .tbtn { width:60px; height:60px; border-radius:14px; border:3px solid #888; background:rgba(255,255,255,0.12); color:#888; font-size:1.4rem; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; -webkit-user-select:none; padding:0; }
+  .tbtn:active { background:rgba(255,255,255,0.25); }
+  .tbtn.jump { grid-column:1 / 3; justify-self:center; }
+  .tbtn.left { grid-row:2; grid-column:1; } .tbtn.right { grid-row:2; grid-column:2; }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <div class="score p1">P1<span id="score-p1">0</span></div>
+    <div class="timer" id="timer">3:00</div>
+    <div class="score p2">P2<span id="score-p2">0</span></div>
+  </div>
+  <div class="stage">
+    <canvas id="game"></canvas>
+    <div class="touch-controls hidden" id="touch-controls">
+      <div class="cluster left" id="cluster-p1">
+        <button class="tbtn jump" data-p="1" data-a="jump">&#9650;</button>
+        <button class="tbtn left" data-p="1" data-a="left">&#9664;</button>
+        <button class="tbtn right" data-p="1" data-a="right">&#9654;</button>
+      </div>
+      <div class="cluster right" id="cluster-p2">
+        <button class="tbtn jump" data-p="2" data-a="jump">&#9650;</button>
+        <button class="tbtn left" data-p="2" data-a="left">&#9664;</button>
+        <button class="tbtn right" data-p="2" data-a="right">&#9654;</button>
+      </div>
+    </div>
+    <div class="overlay" id="start-overlay">
+      <h1>Frogger</h1>
+      <p>Hop across the river on the logs and lily pads. Reach the top bank for 10 points. Fall in and you lose 3.</p>
+      <div class="controls-note">
+        <div class="p1"><strong>Player 1</strong>A / D to hop sideways<br>W to hop forward</div>
+        <div class="p2"><strong>Player 2</strong>&larr; / &rarr; to hop sideways<br>&uarr; to hop forward</div>
+      </div>
+      <button id="start-btn">Choose controls</button>
+    </div>
+    <div class="overlay hidden" id="control-overlay">
+      <h1>How are you playing?</h1>
+      <div class="control-choice">
+        <button id="pc-btn">Computer &mdash; keyboard</button>
+        <button id="tablet-btn">Tablet &mdash; touch</button>
+      </div>
+    </div>
+    <div class="overlay hidden" id="end-overlay">
+      <div class="winner" id="winner-text"></div>
+      <button id="again-btn">Play again</button>
+    </div>
+  </div>
+
+<script>
+  const canvas=document.getElementById('game');
+  const ctx=canvas.getContext('2d');
+  const stage=canvas.parentElement;
+
+  const MATCH_SECONDS=180, HOP_CD=0.11;
+  const LANES=[
+    {type:'bank'},
+    {type:'log',base:70},
+    {type:'pad'},
+    {type:'log',base:115},
+    {type:'pad'},
+    {type:'log',base:90},
+    {type:'goal'}
+  ];
+  const GOAL=LANES.length-1;
+
+  let layout=null, frogs=[], running=false, startTime=0, lastFrame=0, controlMode='pc';
+  const pressed={};
+
+  function resize(){
+    const dpr=window.devicePixelRatio||1;
+    const w=stage.clientWidth, h=stage.clientHeight;
+    canvas.width=w*dpr; canvas.height=h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    computeLayout(w,h);
+  }
+  function computeLayout(w,h){
+    const laneH=h/LANES.length;
+    layout={w,h,laneH,frogR:Math.max(11,laneH*0.3),step:w*0.09};
+    LANES.forEach((L,i)=>{ L.yc=h-(i+0.5)*laneH; L.yTop=h-(i+1)*laneH; });
+  }
+  function laneScale(){ return layout.w/900; }
+
+  function initEntities(){
+    const w=layout.w;
+    LANES.forEach(L=>{
+      if (L.type==='log'){
+        L.speed=L.base*laneScale();
+        const lw=w*0.2, gap=w*0.34, n=3;
+        L.logs=[]; for (let k=0;k<n;k++) L.logs.push({x:k*gap - w*0.1, w:lw, speed:L.speed});
+      } else if (L.type==='pad'){
+        L.pads=[0.15,0.38,0.62,0.85].map((fx,i)=>({x:w*fx-w*0.06, w:w*0.12, period:2.2+i*0.3, phase:i*0.5}));
+      }
+    });
+  }
+
+  function makeFrog(i,team,color,fx){ return { i,team,color, lane:0, x:layout.w*fx, cd:0, dead:false, deadUntil:0, score:0, hop:0 }; }
+
+  function startGame(){
+    resize(); initEntities();
+    frogs=[ makeFrog(0,'p1','#5fd06a',0.4), makeFrog(1,'p2','#ff6fae',0.6) ];
+    running=true; startTime=performance.now(); lastFrame=startTime;
+    document.getElementById('control-overlay').classList.add('hidden');
+    document.getElementById('end-overlay').classList.add('hidden');
+    applyTouch();
+    requestAnimationFrame(loop);
+  }
+  function applyTouch(){ document.getElementById('touch-controls').classList.toggle('hidden',controlMode!=='tablet'); }
+
+  function padPresent(p,now){ return ((now+p.phase)%p.period)/p.period < 0.62; }
+
+  function support(frog,now){
+    const L=LANES[frog.lane];
+    if (L.type==='bank'||L.type==='goal') return {safe:true,ride:0};
+    if (L.type==='log'){ for (const lg of L.logs){ if (frog.x>lg.x && frog.x<lg.x+lg.w) return {safe:true,ride:lg.speed}; } return {safe:false}; }
+    for (const p of L.pads){ if (padPresent(p,now) && frog.x>p.x && frog.x<p.x+p.w) return {safe:true,ride:0}; }
+    return {safe:false};
+  }
+
+  function drown(frog,now){ frog.dead=true; frog.deadUntil=now+0.6; frog.score-=3; updateHud(); }
+  function respawn(frog){ frog.lane=0; frog.x=layout.w*(frog.i===0?0.4:0.6); frog.dead=false; }
+
+  function hop(frog,action){
+    if (frog.dead || frog.cd>0) return;
+    if (action==='left') frog.x=Math.max(layout.frogR,frog.x-layout.step);
+    else if (action==='right') frog.x=Math.min(layout.w-layout.frogR,frog.x+layout.step);
+    else if (action==='jump'){
+      if (frog.lane<GOAL){ frog.lane++; frog.hop=1; if (frog.lane===GOAL){ frog.score+=10; updateHud(); respawn(frog); } }
+    }
+    frog.cd=HOP_CD;
+  }
+
+  function loop(ts){
+    if (!running) return;
+    const now=ts/1000;
+    let dt=(ts-lastFrame)/1000; lastFrame=ts; if (dt>0.05) dt=0.05;
+
+    for (const L of LANES){ if (L.type==='log'){ for (const lg of L.logs){ lg.x+=lg.speed*dt; if (lg.x>layout.w) lg.x=-lg.w; } } }
+
+    for (const f of frogs){
+      if (f.cd>0) f.cd-=dt;
+      if (f.hop>0) f.hop-=dt*7;
+      if (f.dead){ if (now>=f.deadUntil) respawn(f); continue; }
+      const s=support(f,now);
+      if (!s.safe){ drown(f,now); continue; }
+      f.x+=s.ride*dt;
+      if (f.x<-layout.frogR || f.x>layout.w+layout.frogR) drown(f,now);
+    }
+
+    const timeLeft=Math.max(0,MATCH_SECONDS-(ts-startTime)/1000);
+    updateTimer(timeLeft);
+    render(now);
+    if (timeLeft<=0){ endGame(); return; }
+    requestAnimationFrame(loop);
+  }
+
+  function updateHud(){ document.getElementById('score-p1').textContent=frogs[0].score; document.getElementById('score-p2').textContent=frogs[1].score; }
+  function updateTimer(t){ document.getElementById('timer').textContent=Math.floor(t/60)+':'+Math.floor(t%60).toString().padStart(2,'0'); }
+
+  function render(now){
+    const L=layout;
+    for (let i=0;i<LANES.length;i++){
+      const ln=LANES[i];
+      ctx.fillStyle = (ln.type==='bank')?'#3a7d3a' : (ln.type==='goal')?'#2f6d3a' : '#1c5c86';
+      ctx.fillRect(0,ln.yTop,L.w,L.laneH);
+    }
+    // goal decoration
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    for (let k=0;k<5;k++) ctx.fillRect(L.w*(0.1+k*0.2)-6,LANES[GOAL].yc-6,12,12);
+
+    for (const ln of LANES){
+      if (ln.type==='log'){ for (const lg of ln.logs){ ctx.fillStyle='#7a4a24'; rr(lg.x,ln.yc-L.laneH*0.28,lg.w,L.laneH*0.56,10); ctx.fill(); ctx.strokeStyle='#5c3618'; ctx.lineWidth=2; ctx.stroke(); } }
+      else if (ln.type==='pad'){ for (const p of ln.pads){ const on=padPresent(p,now); ctx.fillStyle=on?'#3fae5f':'rgba(63,174,95,0.18)'; ctx.beginPath(); ctx.ellipse(p.x+p.w/2,ln.yc,p.w*0.5,L.laneH*0.3,0,0,7); ctx.fill(); if (on){ ctx.strokeStyle='#2c8546'; ctx.lineWidth=2; ctx.stroke(); } } }
+    }
+
+    for (const f of frogs){ if (!f.dead) drawFrog(f); else drawSplash(f); }
+  }
+
+  function drawFrog(f){
+    const r=layout.frogR, y=LANES[f.lane].yc - (f.hop>0?f.hop*r*0.5:0);
+    ctx.fillStyle=f.color; ctx.strokeStyle='#0b2a12'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.ellipse(f.x,y,r*0.9,r,0,0,7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(f.x-r*0.5,y+r*0.5,r*0.35,r*0.25,0.6,0,7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(f.x+r*0.5,y+r*0.5,r*0.35,r*0.25,-0.6,0,7); ctx.fill(); ctx.stroke();
+    for (const ex of [-r*0.4,r*0.4]){ ctx.fillStyle=f.color; ctx.beginPath(); ctx.arc(f.x+ex,y-r*0.6,r*0.3,0,7); ctx.fill(); ctx.stroke(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(f.x+ex,y-r*0.62,r*0.16,0,7); ctx.fill(); ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(f.x+ex,y-r*0.62,r*0.08,0,7); ctx.fill(); }
+  }
+  function drawSplash(f){
+    const r=layout.frogR, y=LANES[f.lane].yc;
+    ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(f.x,y,r*1.1,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(f.x,y,r*0.5,0,7); ctx.stroke();
+  }
+
+  function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  function endGame(){
+    running=false;
+    const a=frogs[0].score,b=frogs[1].score;
+    document.getElementById('winner-text').textContent = a===b?"It's a tie!":('Player '+(a>b?1:2)+' wins!');
+    document.getElementById('winner-text').style.color = a>b?'var(--p1)':(b>a?'var(--p2)':'var(--text-main)');
+    document.getElementById('touch-controls').classList.add('hidden');
+    document.getElementById('end-overlay').classList.remove('hidden');
+  }
+
+  window.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase();
+    if (['arrowleft','arrowright','arrowup','arrowdown',' '].includes(k)) e.preventDefault();
+    if (e.repeat || !running) return;
+    if (k==='a') hop(frogs[0],'left'); else if (k==='d') hop(frogs[0],'right'); else if (k==='w') hop(frogs[0],'jump');
+    else if (k==='arrowleft') hop(frogs[1],'left'); else if (k==='arrowright') hop(frogs[1],'right'); else if (k==='arrowup') hop(frogs[1],'jump');
+  });
+  document.querySelectorAll('.tbtn').forEach(btn=>{
+    btn.addEventListener('pointerdown',e=>{ e.preventDefault(); if (!running) return; hop(frogs[+btn.dataset.p-1],btn.dataset.a); });
+  });
+
+  document.getElementById('start-btn').addEventListener('click',()=>{ document.getElementById('start-overlay').classList.add('hidden'); document.getElementById('control-overlay').classList.remove('hidden'); });
+  document.getElementById('pc-btn').addEventListener('click',()=>{ controlMode='pc'; startGame(); });
+  document.getElementById('tablet-btn').addEventListener('click',()=>{ controlMode='tablet'; startGame(); });
+  document.getElementById('again-btn').addEventListener('click',()=>{ document.getElementById('control-overlay').classList.remove('hidden'); document.getElementById('end-overlay').classList.add('hidden'); });
+  window.addEventListener('resize',()=>{ if (layout) resize(); });
+  resize();
+</script>
+</body>
+</html>
