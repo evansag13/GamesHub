@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lara's Memory Game</title>
+<style>
+  :root {
+    --bg-deep: #0b0f2e;
+    --bg-panel: #141a42;
+    --accent: #5ee7ff;
+    --accent-warm: #ff9f5e;
+    --card-back: #232b5c;
+    --text-main: #eef1ff;
+    --text-dim: #9aa3d1;
+    --win-glow: #7cffb2;
+    --p1-color: #7cffb2;
+    --p2-color: #ff6fae;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(94,231,255,0.08), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(255,159,94,0.08), transparent 40%),
+      var(--bg-deep);
+    color: var(--text-main);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 60px;
+  }
+
+  h1 {
+    font-size: clamp(1.6rem, 5vw, 2.4rem);
+    letter-spacing: 0.02em;
+    margin: 0 0 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-warm));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    background: var(--bg-panel);
+    padding: 14px;
+    border-radius: 14px;
+    max-width: 640px;
+  }
+
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .control-group label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  button {
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  button:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .choice-btn {
+    background: #1c2450;
+    color: var(--text-dim);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .choice-btn.active {
+    background: var(--accent);
+    color: #071022;
+  }
+
+  .choice-btn:hover { transform: translateY(-1px); }
+
+  .restart-btn {
+    background: var(--accent-warm);
+    color: #071022;
+    padding: 10px 22px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    align-self: center;
+  }
+
+  .restart-btn:hover { box-shadow: 0 4px 14px rgba(255,159,94,0.4); transform: translateY(-1px); }
+
+  .stats {
+    display: flex;
+    gap: 28px;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .stat strong {
+    color: var(--text-main);
+    font-size: 1.2rem;
+    display: block;
+  }
+
+  .turn-banner {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 14px;
+    padding: 6px 18px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+  }
+
+  .turn-p1 { color: var(--p1-color); }
+  .turn-p2 { color: var(--p2-color); }
+
+  .board {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  .card {
+    position: relative;
+    cursor: pointer;
+  }
+
+  .card-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    font-size: var(--tile-emoji-size, clamp(1.6rem, 6vw, 2.2rem));
+    line-height: 1;
+    background: var(--card-back);
+    background-image:
+      radial-gradient(circle at 30% 30%, rgba(94,231,255,0.15), transparent 60%);
+    border: 1px solid rgba(94,231,255,0.15);
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .card-symbol {
+    color: var(--accent);
+    opacity: 0.5;
+  }
+
+  @keyframes cardReveal {
+    0%   { transform: scale(0.8); }
+    60%  { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+
+  .card.flipped .card-face,
+  .card.matched .card-face {
+    background: #1c2450;
+    border-color: rgba(255,255,255,0.06);
+    animation: cardReveal 0.2s ease;
+  }
+
+  .card.matched .card-face {
+    background: #16321f;
+    border-color: var(--win-glow);
+    box-shadow: 0 0 14px rgba(124,255,178,0.35);
+  }
+
+  .card.matched-p1 .card-face {
+    background: rgba(124,255,178,0.14);
+    border-color: var(--p1-color);
+    box-shadow: 0 0 14px rgba(124,255,178,0.4);
+  }
+
+  .card.matched-p2 .card-face {
+    background: rgba(255,111,174,0.14);
+    border-color: var(--p2-color);
+    box-shadow: 0 0 14px rgba(255,111,174,0.4);
+  }
+
+  .card:not(.flipped):not(.matched):hover .card-face {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .win-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(11,15,46,0.92);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    padding: 24px;
+    z-index: 10;
+  }
+
+  .win-overlay.show { display: flex; }
+
+  .win-overlay h2 {
+    font-size: clamp(1.8rem, 6vw, 2.6rem);
+    color: var(--win-glow);
+    margin-bottom: 8px;
+  }
+
+  .win-overlay p {
+    color: var(--text-dim);
+    margin-bottom: 24px;
+    font-size: 1.05rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-face { transition: none; animation: none; }
+  }
+</style>
+</head>
+<body>
+
+  <h1>Lara's Memory Game</h1>
+  <p class="subtitle">Flip two cards. Find the matching pair. Clear the sky.</p>
+
+  <div class="controls">
+    <div class="control-group">
+      <label>Difficulty</label>
+      <div class="btn-row" id="difficulty-row">
+        <button class="choice-btn" data-diff="easy">Easy (12)</button>
+        <button class="choice-btn active" data-diff="medium">Medium (16)</button>
+        <button class="choice-btn" data-diff="hard">Hard (24)</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Players</label>
+      <div class="btn-row" id="players-row">
+        <button class="choice-btn active" data-players="1">Solo</button>
+        <button class="choice-btn" data-players="2">2 Player</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>&nbsp;</label>
+      <button class="restart-btn" id="restart-btn">New Game</button>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div class="turn-banner" id="turn-banner" style="display:none;"></div>
+
+  <div class="board" id="board"></div>
+
+  <noscript>
+    <div style="background:#3a1330;border:1px solid #ff6fae;border-radius:12px;padding:16px;max-width:560px;margin-top:12px;color:#eef1ff;font-size:0.95rem;text-align:center;">
+      This preview can't run the game. Open the file in a proper browser, or use the hosted link instead.
+    </div>
+  </noscript>
+
+  <div class="win-overlay" id="win-overlay">
+    <h2 id="win-title">Sky Cleared!</h2>
+    <p id="win-detail"></p>
+    <button class="restart-btn" id="win-restart-btn">Play Again</button>
+  </div>
+
+<script>
+  const ICONS = ['🚀','🪐','👽','🌙','⭐','☄️','🛸','🌌','🔭','🌟','👨‍🚀','🛰️'];
+
+  const DIFFICULTY = {
+    easy:   { pairs: 6,  cols: 3 },
+    medium: { pairs: 8,  cols: 4 },
+    hard:   { pairs: 12, cols: 4 }
+  };
+
+  let state = {
+    difficulty: 'medium',
+    playerCount: 1,
+    cards: [],
+    flipped: [],
+    matchedCount: 0,
+    moves: 0,
+    scores: [0, 0],
+    currentPlayer: 0,
+    timerSeconds: 0,
+    timerHandle: null,
+    lockBoard: false
+  };
+
+  const boardEl = document.getElementById('board');
+  const statsEl = document.getElementById('stats');
+  const turnBanner = document.getElementById('turn-banner');
+  const winOverlay = document.getElementById('win-overlay');
+  const winTitle = document.getElementById('win-title');
+  const winDetail = document.getElementById('win-detail');
+
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function buildDeck() {
+    const { pairs } = DIFFICULTY[state.difficulty];
+    const chosen = ICONS.slice(0, pairs);
+    const deck = shuffle([...chosen, ...chosen]).map((icon, idx) => ({
+      id: idx,
+      icon,
+      matched: false
+    }));
+    return deck;
+  }
+
+  function startTimer() {
+    stopTimer();
+    state.timerSeconds = 0;
+    state.timerHandle = setInterval(() => {
+      state.timerSeconds++;
+      renderStats();
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (state.timerHandle) clearInterval(state.timerHandle);
+    state.timerHandle = null;
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  }
+
+  function sizeBoard() {
+    const { cols, pairs } = DIFFICULTY[state.difficulty];
+    const rows = Math.ceil((pairs * 2) / cols);
+    const gap = 10;
+
+    const boardTop = boardEl.getBoundingClientRect().top;
+    const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const availableHeight = Math.max(200, viewportHeight - boardTop - 20);
+    const availableWidth = Math.min(window.innerWidth - 32, 640);
+
+    const cellFromWidth = (availableWidth - gap * (cols - 1)) / cols;
+    const cellFromHeight = (availableHeight - gap * (rows - 1)) / rows;
+    const cellSize = Math.max(36, Math.min(cellFromWidth, cellFromHeight));
+
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+    boardEl.style.gridAutoRows = `${cellSize}px`;
+    boardEl.style.maxWidth = 'none';
+    boardEl.style.width = 'max-content';
+    boardEl.style.setProperty('--tile-emoji-size', `${Math.round(cellSize * 0.58)}px`);
+  }
+
+  function newGame() {
+    state.cards = buildDeck();
+    state.flipped = [];
+    state.matchedCount = 0;
+    state.moves = 0;
+    state.scores = [0, 0];
+    state.currentPlayer = 0;
+    state.lockBoard = false;
+    winOverlay.classList.remove('show');
+
+    const { cols } = DIFFICULTY[state.difficulty];
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    renderBoard();
+    renderStats();
+    renderTurnBanner();
+    sizeBoard();
+
+    if (state.playerCount === 1) startTimer();
+    else stopTimer();
+  }
+
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    state.cards.forEach(card => {
+      const cardEl = document.createElement('div');
+      cardEl.className = 'card';
+      cardEl.dataset.id = card.id;
+      cardEl.innerHTML = `<div class="card-face"><span class="card-symbol">✦</span></div>`;
+      cardEl.addEventListener('click', () => handleCardClick(card.id, cardEl));
+      boardEl.appendChild(cardEl);
+    });
+  }
+
+  function renderStats() {
+    if (state.playerCount === 1) {
+      statsEl.innerHTML = `
+        <div class="stat"><strong>${state.moves}</strong>Moves</div>
+        <div class="stat"><strong>${formatTime(state.timerSeconds)}</strong>Time</div>
+      `;
+    } else {
+      statsEl.innerHTML = `
+        <div class="stat"><strong style="color:var(--p1-color)">${state.scores[0]}</strong>Player 1</div>
+        <div class="stat"><strong style="color:var(--p2-color)">${state.scores[1]}</strong>Player 2</div>
+      `;
+    }
+  }
+
+  function renderTurnBanner() {
+    if (state.playerCount === 2) {
+      turnBanner.style.display = 'block';
+      turnBanner.textContent = `Player ${state.currentPlayer + 1}'s turn`;
+      turnBanner.className = `turn-banner ${state.currentPlayer === 0 ? 'turn-p1' : 'turn-p2'}`;
+    } else {
+      turnBanner.style.display = 'none';
+    }
+  }
+
+  function handleCardClick(id, cardEl) {
+    if (state.lockBoard) return;
+    if (cardEl.classList.contains('flipped') || cardEl.classList.contains('matched')) return;
+    if (state.flipped.length === 2) return;
+
+    const card = state.cards.find(c => c.id === id);
+    cardEl.querySelector('.card-face').textContent = card.icon;
+    cardEl.classList.add('flipped');
+    state.flipped.push({ id, el: cardEl });
+
+    if (state.flipped.length === 2) {
+      state.moves++;
+      renderStats();
+      checkMatch();
+    }
+  }
+
+  function checkMatch() {
+    const [a, b] = state.flipped;
+    const cardA = state.cards.find(c => c.id === a.id);
+    const cardB = state.cards.find(c => c.id === b.id);
+    const isMatch = cardA.icon === cardB.icon;
+
+    if (isMatch) {
+      state.lockBoard = true;
+      setTimeout(() => {
+        a.el.classList.add('matched');
+        b.el.classList.add('matched');
+
+        if (state.playerCount === 2) {
+          const playerClass = `matched-p${state.currentPlayer + 1}`;
+          a.el.classList.add(playerClass);
+          b.el.classList.add(playerClass);
+        }
+
+        state.matchedCount += 2;
+        state.flipped = [];
+        state.lockBoard = false;
+
+        if (state.playerCount === 2) {
+          state.scores[state.currentPlayer]++;
+          renderStats();
+        }
+
+        checkWin();
+      }, 350);
+    } else {
+      state.lockBoard = true;
+      setTimeout(() => {
+        a.el.classList.remove('flipped');
+        b.el.classList.remove('flipped');
+        a.el.querySelector('.card-face').innerHTML = '<span class="card-symbol">✦</span>';
+        b.el.querySelector('.card-face').innerHTML = '<span class="card-symbol">✦</span>';
+        state.flipped = [];
+        state.lockBoard = false;
+
+        if (state.playerCount === 2) {
+          state.currentPlayer = 1 - state.currentPlayer;
+          renderTurnBanner();
+        }
+      }, 900);
+    }
+  }
+
+  function checkWin() {
+    const totalCards = DIFFICULTY[state.difficulty].pairs * 2;
+    if (state.matchedCount === totalCards) {
+      stopTimer();
+      if (state.playerCount === 1) {
+        winTitle.textContent = 'Sky Cleared!';
+        winDetail.textContent = `${state.moves} moves · ${formatTime(state.timerSeconds)}`;
+      } else {
+        const winner = state.scores[0] === state.scores[1]
+          ? "It's a tie!"
+          : `Player ${state.scores[0] > state.scores[1] ? 1 : 2} wins!`;
+        winTitle.textContent = winner;
+        winDetail.textContent = `Player 1: ${state.scores[0]} pairs · Player 2: ${state.scores[1]} pairs`;
+      }
+      winOverlay.classList.add('show');
+    }
+  }
+
+  document.getElementById('difficulty-row').addEventListener('click', e => {
+    const btn = e.target.closest('.choice-btn');
+    if (!btn) return;
+    document.querySelectorAll('#difficulty-row .choice-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.difficulty = btn.dataset.diff;
+    newGame();
+  });
+
+  document.getElementById('players-row').addEventListener('click', e => {
+    const btn = e.target.closest('.choice-btn');
+    if (!btn) return;
+    document.querySelectorAll('#players-row .choice-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.playerCount = parseInt(btn.dataset.players, 10);
+    newGame();
+  });
+
+  document.getElementById('restart-btn').addEventListener('click', newGame);
+  document.getElementById('win-restart-btn').addEventListener('click', newGame);
+
+  window.addEventListener('resize', sizeBoard);
+
+  newGame();
+</script>
+</body>
+</html>
